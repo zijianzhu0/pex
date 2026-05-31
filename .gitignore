@@ -1,0 +1,17 @@
+# Local Codex/agent mount points.
+.agents/
+.codex/
+
+# Downloaded upstream images.
+downloads/
+
+# Temporary decompressed images and mount directories.
+work/
+
+# Extracted NFS root filesystem.
+nfs/
+
+# Generated Raspberry Pi boot artifacts.
+assets/rpi5-tftp/
+assets/*.img
+assets/*.img.manifest
