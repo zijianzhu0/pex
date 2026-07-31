@@ -1,84 +1,195 @@
 # Raspberry Pi 5 LAN Boot Workspace
 
-This folder prepares the local files needed for a Raspberry Pi 5 network boot.
-Networking/DHCP/NFS service wiring is intentionally separate.
+This workspace prepares Raspberry Pi OS Legacy Lite 64-bit for a Raspberry Pi
+5 that loads its boot files over TFTP and mounts its root filesystem over NFS.
 
-The smallest practical base here is the official Raspberry Pi OS Legacy Lite
-64-bit image. It is smaller than the current Trixie Lite image and is listed by
-Raspberry Pi as compatible with Raspberry Pi 5.
+## 1. Install the server dependencies
 
-## What Was Enabled On This Machine
-
-This workspace has been prepared as a Raspberry Pi 5 LAN boot server.
-
-- Downloaded and verified the official Raspberry Pi OS Legacy Lite 64-bit
-  image:
-  `downloads/raspios-bookworm-arm64-lite.img.xz`
-- Extracted the image into:
-  - `assets/rpi5-tftp/` for Raspberry Pi firmware and kernel files served by
-    TFTP
-  - `nfs/rpi5-root/` for the root filesystem that the Pi mounts over NFS
-- Generated `assets/rpi5-tftp/cmdline.txt` so the Pi boots with:
-
-```text
-nfsroot=192.168.8.187:/home/zijian/repositories/pex/nfs/rpi5-root,vers=3,tcp,nolock
-```
-
-- Created `assets/rpi5-boot.img`, a compact FAT boot image from the TFTP tree.
-  The current manifest says it was created at `2026-05-31T06:12:41Z`.
-- Added `docker-compose.yml` with a `rpi5-tftp` service. It runs
-  `dnsmasq` from the `ghcr.io/netbootxyz/netbootxyz` image in host network
-  mode, disables DNS with `--port=0`, enables TFTP, and serves
-  `./assets/rpi5-tftp` from `/tftp`.
-- Started the `rpi5-tftp` container. Current check:
+Run this on the Linux boot server:
 
 ```bash
-docker ps --filter name=rpi5-tftp
+./scripts/install-dependencies.sh
 ```
 
-The service is bound to interface `enp2s0` in `docker-compose.yml`.
+The script installs Docker, Docker Compose, NFS, OpenSSH, OpenSSL, and the image
+and FAT filesystem utilities used by the preparation script. It also downloads
+the container images declared in `docker-compose.yml`.
 
-NFS is expected to export:
+## 2. Prepare the Raspberry Pi filesystem
 
-```text
-/home/zijian/repositories/pex/nfs/rpi5-root
-```
-
-The Pi boot command already points there. If NFS needs to be recreated on a
-fresh host, add an export for that path and reload the NFS server.
-
-## Prepare Files
-
-Run:
+Find the boot server's stable LAN address:
 
 ```bash
-./scripts/prepare-rpi5-lite.sh
+ip route get 1.1.1.1
 ```
 
-That creates:
-
-```text
-assets/rpi5-tftp/        # boot partition files for TFTP
-assets/rpi5-boot.img     # compact FAT boot ramdisk image, if it fits under 96 MiB
-nfs/rpi5-root/           # root filesystem tree for NFS
-config/rpi5/cmdline.txt.template
-```
-
-When you know the LAN server IP and NFS export path, regenerate the boot command
-line:
+Use the address after `src` when preparing the image. On the current server:
 
 ```bash
-./scripts/prepare-rpi5-lite.sh --server-ip 192.168.1.10 --root-export /srv/rpi5-root
+./scripts/prepare-rpi5-lite.sh \
+  --server-ip 192.168.8.187 \
+  --root-export /home/zijian/repositories/pex/nfs/rpi5-root
 ```
 
-The resulting `assets/rpi5-tftp/cmdline.txt` will point the Pi kernel at the
-NFS root.
+Use `--no-download` on later runs to require the previously downloaded image:
+
+```bash
+./scripts/prepare-rpi5-lite.sh \
+  --server-ip 192.168.8.187 \
+  --root-export /home/zijian/repositories/pex/nfs/rpi5-root \
+  --no-download
+```
+
+This creates:
+
+```text
+assets/rpi5-tftp/        boot files served over TFTP
+assets/rpi5-boot.img     optional compact FAT boot image
+nfs/rpi5-root/           root filesystem exported over NFS
+```
+
+Verify that the generated kernel command line uses NFS:
+
+```bash
+cat assets/rpi5-tftp/cmdline.txt
+```
+
+It should contain:
+
+```text
+root=/dev/nfs nfsroot=192.168.8.187:/home/zijian/repositories/pex/nfs/rpi5-root,vers=3,tcp,nolock rw ip=dhcp rootwait
+```
+
+If it contains `root=PARTUUID=...`, the preparation script was run without
+`--server-ip`. Run it again with both `--server-ip` and `--root-export`.
+
+## 3. Create the Pi account and enable SSH
+
+Run this after preparing the filesystem:
+
+```bash
+./scripts/customize-rpi-user.sh --username zijian
+```
+
+The script prompts for a password without displaying it, stores only a salted
+password hash, enables SSH, and confirms that OpenSSH Server exists in the Pi
+root. Rerun this step whenever the preparation script is rerun, because image
+preparation replaces the boot and root filesystem trees.
+
+## 4. Export the NFS root
+
+```bash
+sudo tee /etc/exports.d/pex.exports >/dev/null <<'EOF'
+/home/zijian/repositories/pex/nfs/rpi5-root *(rw,sync,no_subtree_check,no_root_squash)
+EOF
+
+sudo exportfs -rav
+sudo systemctl enable --now rpcbind nfs-kernel-server
+sudo exportfs -v
+```
+
+The exported path must exactly match the path after the server address in
+`nfsroot=`.
+
+## 5. Configure TFTP discovery
+
+Find the wired interface name:
+
+```bash
+ip -br link
+ip -4 address
+```
+
+Set the matching interface in `docker-compose.yml`. The current configuration
+uses `enp2s0`:
+
+```yaml
+- --interface=enp2s0
+```
+
+The Pi bootloader must also learn the TFTP server address through DHCP. Either
+set DHCP option 66 on the router to `192.168.8.187`, or add proxy-DHCP settings
+to the `rpi5-tftp` command in `docker-compose.yml`:
+
+```yaml
+- --log-dhcp
+- --dhcp-range=192.168.8.255,proxy
+- --pxe-service=0,"Raspberry Pi Boot"
+```
+
+The example broadcast address assumes the LAN is `192.168.8.0/24`. Do not add
+a second normal DHCP server when the router already provides DHCP.
+
+Start TFTP and watch its logs:
+
+```bash
+docker compose up -d rpi5-tftp
+docker compose ps
+docker compose logs -f rpi5-tftp
+```
+
+Allow DHCP/BOOTP, TFTP, RPC, NFS, and NFSv3 helper traffic through any server
+firewall. The main ports are UDP 67-69 and TCP/UDP 111 and 2049.
+
+## 6. Enable network boot on the Pi 5
+
+Boot the Pi once from a normal Raspberry Pi OS SD card, update it, and select
+network boot in the boot-order menu:
+
+```bash
+sudo apt update
+sudo apt full-upgrade -y
+sudo raspi-config
+```
+
+Alternatively, edit the EEPROM configuration:
+
+```bash
+sudo -E rpi-eeprom-config --edit
+```
+
+Use this order to try SD first, then network, and repeat:
+
+```text
+BOOT_ORDER=0xf21
+```
+
+Reboot once to apply the EEPROM update, then power off and remove the SD card.
+
+## 7. Boot and connect
+
+Connect the Pi through wired Ethernet, power it on, and watch the TFTP logs on
+the server. Reserve the Pi's Ethernet MAC address in the router's DHCP settings
+if it should always receive the same address.
+
+After it boots, verify its address locally with:
+
+```bash
+hostname -I
+ip -4 address
+ip route
+```
+
+Then connect from the server:
+
+```bash
+ping <pi-ip-address>
+ssh zijian@<pi-ip-address>
+```
+
+The complete boot path is:
+
+```text
+Pi EEPROM -> DHCP/TFTP discovery -> TFTP boot files -> kernel -> NFS root -> SSH
+```
 
 ## Notes
 
+- Give the boot server a static address or a DHCP reservation. If its address
+  changes, both `cmdline.txt` and the DHCP/TFTP discovery configuration become
+  invalid.
 - Raspberry Pi 5 requires a non-empty `config.txt` in the boot filesystem.
-- `boot.img` is optional. It is useful because the Pi firmware can load one FAT
-  boot image instead of many individual TFTP files. The Raspberry Pi bootloader
-  limits this image to 96 MiB.
-- The root filesystem is not an SD-card image after extraction. It is a normal
-  directory intended to be exported by NFS later.
+- `boot.img` is optional. The preparation script creates it only when the boot
+  tree fits within the Raspberry Pi bootloader's 96 MiB limit.
+- Every Pi sharing `nfs/rpi5-root/` shares the same writable filesystem and
+  account state. Use a separate NFS root for each independently managed Pi.
