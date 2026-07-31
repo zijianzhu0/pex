@@ -22,8 +22,8 @@ echo "Installing Raspberry Pi network-boot tools..."
 if command -v apt-get >/dev/null 2>&1; then
   "${AS_ROOT[@]}" apt-get update
   "${AS_ROOT[@]}" apt-get install -y \
-    ca-certificates curl xz-utils util-linux dosfstools mtools rsync \
-    docker.io nfs-kernel-server
+    ca-certificates curl openssl openssh-server xz-utils util-linux \
+    dosfstools mtools rsync docker.io nfs-kernel-server
   if apt-cache show docker-compose-v2 >/dev/null 2>&1; then
     "${AS_ROOT[@]}" apt-get install -y docker-compose-v2
   elif apt-cache show docker-compose-plugin >/dev/null 2>&1; then
@@ -33,15 +33,15 @@ if command -v apt-get >/dev/null 2>&1; then
   fi
 elif command -v dnf >/dev/null 2>&1; then
   "${AS_ROOT[@]}" dnf install -y \
-    ca-certificates curl xz util-linux dosfstools mtools rsync \
+    ca-certificates curl openssl openssh-server xz util-linux dosfstools mtools rsync \
     docker docker-compose-plugin nfs-utils
 elif command -v pacman >/dev/null 2>&1; then
   "${AS_ROOT[@]}" pacman -Syu --needed --noconfirm \
-    ca-certificates curl xz util-linux dosfstools mtools rsync \
+    ca-certificates curl openssl openssh xz util-linux dosfstools mtools rsync \
     docker docker-compose nfs-utils
 elif command -v apk >/dev/null 2>&1; then
   "${AS_ROOT[@]}" apk add \
-    ca-certificates curl xz util-linux dosfstools mtools rsync \
+    ca-certificates curl openssl openssh-server xz util-linux dosfstools mtools rsync \
     docker docker-cli-compose nfs-utils
 else
   echo "Unsupported package manager. Use apt, dnf, pacman, or apk." >&2
@@ -62,7 +62,7 @@ if [[ "${EUID}" -ne 0 ]] && getent group docker >/dev/null 2>&1; then
 fi
 
 required_commands=(
-  curl sha256sum xz sfdisk mkfs.vfat mcopy rsync
+  curl openssl sha256sum xz sfdisk mkfs.vfat mcopy rsync
   losetup mount umount mountpoint docker
 )
 
@@ -72,6 +72,10 @@ for command_name in "${required_commands[@]}"; do
     missing+=("${command_name}")
   fi
 done
+
+if ! command -v sshd >/dev/null 2>&1 && [[ ! -x /usr/sbin/sshd ]]; then
+  missing+=("sshd")
+fi
 
 if ((${#missing[@]})); then
   echo "Installation finished, but these commands are still missing: ${missing[*]}" >&2
