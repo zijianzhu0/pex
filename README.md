@@ -183,6 +183,31 @@ The complete boot path is:
 Pi EEPROM -> DHCP/TFTP discovery -> TFTP boot files -> kernel -> NFS root -> SSH
 ```
 
+## Optional: make the Pi root ephemeral with OverlayFS
+
+After confirming that the Pi boots and is reachable over SSH, run this on the
+boot server:
+
+```bash
+./scripts/enable-overlayfs.sh --pi-host zijian@<pi-ip-address>
+```
+
+The command installs an NFS-aware initramfs on the Pi, remounts the NFS root as
+a read-only lower layer during future boots, and uses a RAM-backed writable
+upper layer. It synchronizes the new initramfs and boot configuration to TFTP
+and backs up the previous boot configuration under `work/overlayfs-backups/`.
+
+Reboot the Pi and verify that `/` uses OverlayFS:
+
+```bash
+sudo reboot
+findmnt -t overlay /
+```
+
+Files written after OverlayFS starts, including package and configuration
+changes, disappear at the next reboot. Make permanent changes to the base NFS
+root only while OverlayFS is disabled or from the server while the Pi is off.
+
 ## Notes
 
 - Give the boot server a static address or a DHCP reservation. If its address
