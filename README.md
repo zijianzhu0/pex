@@ -63,6 +63,12 @@ root=/dev/nfs nfsroot=192.168.8.187:/home/zijian/repositories/pex/nfs/rpi5-root,
 If it contains `root=PARTUUID=...`, the preparation script was run without
 `--server-ip`. Run it again with both `--server-ip` and `--root-export`.
 
+The TFTP tree and NFS root directory should be owned by `root`. Files inside
+the NFS root deliberately retain the numeric owners from Raspberry Pi OS; not
+every file should have owner `root`. If a previous preparation made the whole
+tree belong to the host user, rerun this step to extract it with correct
+ownership before applying account or OverlayFS customization.
+
 ## 3. Create the Pi account and enable SSH
 
 Run this after preparing the filesystem:
@@ -175,6 +181,12 @@ Then connect from the server:
 ```bash
 ping <pi-ip-address>
 ssh zijian@<pi-ip-address>
+```
+
+Shut the Pi down cleanly from the server before removing power:
+
+```bash
+./scripts/shutdown-rpi.sh --pi-host zijian@<pi-ip-address>
 ```
 
 The complete boot path is:
