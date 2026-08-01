@@ -238,6 +238,25 @@ else
       cp -a /work/assets/rpi5-tftp/. /work/nfs/rpi5-root/boot/firmware/'
 fi
 
+# The source image expects its root and boot partitions to be available by
+# PARTUUID. This workspace supplies both from the NFS root instead, so leaving
+# those entries in place makes systemd-remount-fs and boot-firmware.mount fail
+# on the Pi.
+echo "Configuring the NFS root filesystem table..."
+if [[ "${HAVE_SUDO}" -eq 1 ]]; then
+  printf 'proc\t/proc\tproc\tdefaults\t0\t0\n' | \
+    "${AS_ROOT[@]}" tee "${NFS_ROOT}/etc/fstab" >/dev/null
+  "${AS_ROOT[@]}" chown 0:0 "${NFS_ROOT}/etc/fstab"
+  "${AS_ROOT[@]}" chmod 0644 "${NFS_ROOT}/etc/fstab"
+else
+  docker run --rm \
+    -v "${ROOT_DIR}:/work" \
+    debian:bookworm-slim \
+    sh -c 'printf "proc\t/proc\tproc\tdefaults\t0\t0\n" > /work/nfs/rpi5-root/etc/fstab
+      chown 0:0 /work/nfs/rpi5-root/etc/fstab
+      chmod 0644 /work/nfs/rpi5-root/etc/fstab'
+fi
+
 echo "Creating compact boot.img if the boot tree fits..."
 BOOT_BYTES="$(du -sb "${TFTP_DIR}" | awk '{print $1}')"
 BOOT_LIMIT_BYTES=$((BOOT_IMG_SIZE_MIB * 1024 * 1024))
