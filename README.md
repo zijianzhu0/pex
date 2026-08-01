@@ -27,7 +27,7 @@ Use the address after `src` when preparing the image. On the current server:
 
 ```bash
 ./scripts/prepare-rpi5-lite.sh \
-  --server-ip 192.168.8.187 \
+  --server-ip 192.168.8.186 \
   --root-export /home/zijian/repositories/pex/nfs/rpi5-root
 ```
 
@@ -35,7 +35,7 @@ Use `--no-download` on later runs to require the previously downloaded image:
 
 ```bash
 ./scripts/prepare-rpi5-lite.sh \
-  --server-ip 192.168.8.187 \
+  --server-ip 192.168.8.186 \
   --root-export /home/zijian/repositories/pex/nfs/rpi5-root \
   --no-download
 ```
@@ -57,7 +57,7 @@ cat assets/rpi5-tftp/cmdline.txt
 It should contain:
 
 ```text
-root=/dev/nfs nfsroot=192.168.8.187:/home/zijian/repositories/pex/nfs/rpi5-root,vers=3,tcp,nolock rw ip=dhcp rootwait
+root=/dev/nfs nfsroot=192.168.8.186:/home/zijian/repositories/pex/nfs/rpi5-root,vers=3,tcp,nolock rw ip=dhcp rootwait
 ```
 
 If it contains `root=PARTUUID=...`, the preparation script was run without
@@ -107,14 +107,14 @@ ip -4 address
 ```
 
 Set the matching interface in `docker-compose.yml`. The current configuration
-uses `enp2s0`:
+uses `eth0`:
 
 ```yaml
-- --interface=enp2s0
+- --interface=eth0
 ```
 
 The Pi bootloader must also learn the TFTP server address through DHCP. Either
-set DHCP option 66 on the router to `192.168.8.187`, or add proxy-DHCP settings
+set DHCP option 66 on the router to `192.168.8.186`, or add proxy-DHCP settings
 to the `rpi5-tftp` command in `docker-compose.yml`:
 
 ```yaml

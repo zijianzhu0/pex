@@ -10,9 +10,14 @@ services:
       - --log-facility=-
       - --enable-tftp
       - --tftp-root=/tftp
-      - --interface=enp2s0
+      - --interface=eth0
       - --bind-interfaces
+      - --log-dhcp
+      - --dhcp-range=192.168.8.255,proxy
+      - --pxe-service=0,"Raspberry Pi Boot"
     network_mode: host
+    cap_add:
+      - NET_ADMIN
     volumes:
       - ./assets/rpi5-tftp:/tftp:ro
     healthcheck:
