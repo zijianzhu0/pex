@@ -3,6 +3,59 @@
 This workspace prepares Raspberry Pi OS Legacy Lite 64-bit for a Raspberry Pi
 5 that loads its boot files over TFTP and mounts its root filesystem over NFS.
 
+## Architecture
+
+The Linux boot server prepares and owns the Pi's boot and root filesystem
+artifacts. `dnsmasq`, run as the `rpi5-tftp` container, advertises and serves
+the TFTP boot tree. The host NFS service exports the Pi root filesystem. The
+Raspberry Pi 5 is the target: it obtains network settings, loads its firmware,
+kernel, and initramfs from TFTP, then mounts its operating-system root from
+NFS. Once booted, it is managed from the server over SSH.
+
+```mermaid
+flowchart LR
+    Server["Linux boot server"]
+    Docker["rpi5-tftp container\n(dnsmasq + TFTP)"]
+    NFS["Host NFS service\nnfs/rpi5-root"]
+    DHCP["Existing LAN DHCP server\n(or proxy DHCP)"]
+    Pi["Raspberry Pi 5 target"]
+
+    Server -->|bind-mounts assets/rpi5-tftp| Docker
+    Server -->|exports| NFS
+    DHCP -->|IP address + option 66 / proxy discovery| Pi
+    Docker -->|TFTP: firmware, kernel, initramfs, cmdline| Pi
+    NFS -->|NFSv3: root filesystem| Pi
+    Server <-->|SSH: administration| Pi
+```
+
+The Pi must use wired Ethernet. Keep the boot server's LAN address stable: it
+is embedded in the NFS kernel command line and used for TFTP discovery.
+
+## Folder structure
+
+```text
+.
+├── README.md                         setup and operating guide
+├── docker-compose.yml                TFTP/proxy-DHCP container configuration
+├── config/rpi5/
+│   └── cmdline.txt.template          NFS-root kernel command-line template
+├── scripts/
+│   ├── install-dependencies.sh       installs host prerequisites
+│   ├── prepare-rpi5-lite.sh          builds the TFTP tree and NFS root
+│   ├── customize-rpi-user.sh         creates the Pi user and enables SSH
+│   ├── enable-overlayfs.sh           enables disposable RAM-backed Pi writes
+│   └── shutdown-rpi.sh               powers down the target safely over SSH
+├── assets/                           generated TFTP boot files and boot image
+├── downloads/                        generated cached Raspberry Pi OS archive
+├── nfs/rpi5-root/                    generated Raspberry Pi OS root, exported by NFS
+└── work/                             generated temporary image and OverlayFS backups
+```
+
+`assets/`, `downloads/`, `nfs/`, and `work/` are generated locally and are not
+tracked in Git. Regenerate the boot tree and NFS root with
+`scripts/prepare-rpi5-lite.sh`; rerun `scripts/customize-rpi-user.sh` after
+doing so.
+
 ## 1. Install the server dependencies
 
 Run this on the Linux boot server:
